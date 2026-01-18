@@ -4,11 +4,11 @@
 
 class NerdflixApp {
     constructor() {
-        // Optimized JSON data URL (47MB -> 5MB with gzip = ~3-5s load)
-        this.dataUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/nerdflix-data.json';
+        // Local JSON data (99 canais BR)
+        this.dataUrl = 'canais-br.json';
         
         // Fallback to M3U8 if JSON not available
-        this.playlistUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/ListaVip.m3u8';
+        this.playlistUrl = 'CanaisBR01.m3u8';
         
         // Cache settings (IndexedDB - supports large data)
         this.CACHE_KEY = 'nerdflix_playlist_cache_v2';
