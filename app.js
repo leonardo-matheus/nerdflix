@@ -865,15 +865,16 @@ class NerdflixApp {
         const hasLogo = item.logo && item.logo.trim() !== '';
         const icon = this.getItemIcon(item);
         const logoUrl = this.forceHttps(item.logo);
+        const safeName = this.escapeHtml(item.name).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
         
         return `
             <div class="content-card" data-id="${item.id}">
                 <div class="card-image">
                     ${hasLogo 
-                        ? `<img src="${this.escapeHtml(logoUrl)}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-placeholder\\'><i class=\\'${icon}\\'></i><span>${this.escapeHtml(item.name)}</span></div>'">`
+                        ? `<img src="${this.escapeHtml(logoUrl)}" alt="${safeName}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="card-placeholder" style="display:none"><i class="${icon}"></i><span>${safeName}</span></div>`
                         : `<div class="card-placeholder">
                             <i class="${icon}"></i>
-                            <span>${this.escapeHtml(item.name)}</span>
+                            <span>${safeName}</span>
                            </div>`
                     }
                     <div class="card-overlay">
