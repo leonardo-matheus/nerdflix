@@ -138,8 +138,43 @@ class NerdflixApp {
         try {
             this.elements.loadingText.textContent = 'Baixando lista...';
             
-            const response = await fetch(this.playlistUrl);
-            const text = await response.text();
+            let text = null;
+            
+            // Try direct fetch first
+            try {
+                const response = await fetch(this.playlistUrl);
+                if (response.ok) {
+                    text = await response.text();
+                }
+            } catch (e) {
+                console.log('Direct fetch failed, trying CORS proxy...');
+            }
+            
+            // If direct fetch failed, try CORS proxies
+            if (!text) {
+                const corsProxies = [
+                    'https://api.allorigins.win/raw?url=',
+                    'https://corsproxy.io/?',
+                    'https://cors-anywhere.herokuapp.com/'
+                ];
+                
+                for (const proxy of corsProxies) {
+                    try {
+                        this.elements.loadingText.textContent = 'Tentando proxy alternativo...';
+                        const response = await fetch(proxy + encodeURIComponent(this.playlistUrl));
+                        if (response.ok) {
+                            text = await response.text();
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`Proxy ${proxy} failed`);
+                    }
+                }
+            }
+            
+            if (!text) {
+                throw new Error('Não foi possível carregar a playlist');
+            }
             
             this.elements.loadingText.textContent = 'Processando conteúdo...';
             
@@ -153,7 +188,7 @@ class NerdflixApp {
             
         } catch (error) {
             console.error('Erro ao carregar playlist:', error);
-            this.elements.loadingText.textContent = 'Erro ao carregar. Tente novamente.';
+            this.elements.loadingText.textContent = 'Erro ao carregar: ' + error.message;
         }
     }
     
