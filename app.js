@@ -7,10 +7,7 @@ class NerdflixApp {
         // M3U8 Playlist URL
         this.playlistUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/ListaVip.m3u8';
         
-        // Pre-processed JSON cache URL (optional - for faster loading)
-        this.cacheJsonUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/nerdflix-cache.json';
-        
-        // Cache settings
+        // Cache settings (IndexedDB - supports large data)
         this.CACHE_KEY = 'nerdflix_playlist_cache';
         this.CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
         
@@ -191,14 +188,15 @@ class NerdflixApp {
         try {
             this.loadStartTime = Date.now();
             
-            // Try to load from local cache first
-            const cached = this.loadFromCache();
+            // Try to load from local cache first (IndexedDB)
+            this.updatePhase('Verificando cache local...');
+            const cached = await this.loadFromCache();
             if (cached) {
                 this.updatePhase('Carregando do cache...');
                 this.updateProgress(100, 100);
                 this.allItems = cached.items;
                 this.categories = cached.categories;
-                this.elements.loadingEta.textContent = 'Cache local utilizado!';
+                this.elements.loadingEta.textContent = '⚡ Cache local utilizado!';
                 
                 this.renderCategoryDropdown();
                 this.renderContent();
@@ -206,28 +204,6 @@ class NerdflixApp {
                 
                 console.log(`Carregado do cache: ${this.allItems.length} itens`);
                 return;
-            }
-            
-            // Try to load pre-processed JSON first (faster)
-            try {
-                this.updatePhase('Buscando cache do servidor...');
-                const jsonData = await this.fetchWithProgress(this.cacheJsonUrl);
-                if (jsonData) {
-                    const parsed = JSON.parse(jsonData);
-                    this.allItems = parsed.items;
-                    this.categories = parsed.categories;
-                    
-                    this.saveToCache();
-                    this.updatePhase('Renderizando...');
-                    this.renderCategoryDropdown();
-                    this.renderContent();
-                    this.setFeaturedItem();
-                    
-                    console.log(`Carregado do JSON: ${this.allItems.length} itens`);
-                    return;
-                }
-            } catch (e) {
-                console.log('JSON cache not available, loading M3U8...');
             }
             
             // Load M3U8 with progress
@@ -261,8 +237,9 @@ class NerdflixApp {
             
             await this.parseM3U8Async(text);
             
-            // Save to local cache
-            this.saveToCache();
+            // Save to local cache (IndexedDB - async)
+            this.updatePhase('Salvando cache local...');
+            await this.saveToCache();
             
             this.updatePhase('Renderizando interface...');
             this.updateProgress(90, 100, 'process');
@@ -272,6 +249,7 @@ class NerdflixApp {
             this.setFeaturedItem();
             
             this.updateProgress(100, 100, 'process');
+            this.elements.loadingEta.textContent = '✅ Próximo acesso será instantâneo!';
             
         } catch (error) {
             console.error('Erro ao carregar playlist:', error);
@@ -321,41 +299,95 @@ class NerdflixApp {
         }
     }
     
-    // Cache management
-    loadFromCache() {
+    // Cache management using IndexedDB (supports large data)
+    async initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open('NerdflixDB', 1);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('cache')) {
+                    db.createObjectStore('cache', { keyPath: 'id' });
+                }
+            };
+        });
+    }
+    
+    async loadFromCache() {
         try {
-            const cached = localStorage.getItem(this.CACHE_KEY);
-            if (!cached) return null;
-            
-            const data = JSON.parse(cached);
-            if (Date.now() - data.timestamp > this.CACHE_EXPIRY) {
-                localStorage.removeItem(this.CACHE_KEY);
-                return null;
-            }
-            
-            return data;
+            const db = await this.initDB();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['cache'], 'readonly');
+                const store = transaction.objectStore('cache');
+                const request = store.get('playlist');
+                
+                request.onsuccess = () => {
+                    const data = request.result;
+                    if (!data) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    // Check expiry
+                    if (Date.now() - data.timestamp > this.CACHE_EXPIRY) {
+                        this.clearCache();
+                        resolve(null);
+                        return;
+                    }
+                    
+                    resolve(data);
+                };
+                
+                request.onerror = () => resolve(null);
+            });
         } catch (e) {
+            console.warn('Cache read error:', e);
             return null;
         }
     }
     
-    saveToCache() {
+    async saveToCache() {
         try {
-            const data = {
-                items: this.allItems,
-                categories: this.categories,
-                timestamp: Date.now()
-            };
-            localStorage.setItem(this.CACHE_KEY, JSON.stringify(data));
-            console.log('Cache salvo com sucesso');
+            const db = await this.initDB();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['cache'], 'readwrite');
+                const store = transaction.objectStore('cache');
+                
+                const data = {
+                    id: 'playlist',
+                    items: this.allItems,
+                    categories: this.categories,
+                    timestamp: Date.now()
+                };
+                
+                const request = store.put(data);
+                request.onsuccess = () => {
+                    console.log('Cache salvo com sucesso (IndexedDB)');
+                    resolve(true);
+                };
+                request.onerror = () => {
+                    console.warn('Erro ao salvar cache');
+                    resolve(false);
+                };
+            });
         } catch (e) {
             console.warn('Não foi possível salvar cache:', e.message);
         }
     }
     
-    clearCache() {
-        localStorage.removeItem(this.CACHE_KEY);
-        console.log('Cache limpo');
+    async clearCache() {
+        try {
+            const db = await this.initDB();
+            const transaction = db.transaction(['cache'], 'readwrite');
+            const store = transaction.objectStore('cache');
+            store.delete('playlist');
+            console.log('Cache limpo');
+        } catch (e) {
+            console.warn('Erro ao limpar cache:', e);
+        }
     }
     
     async parseM3U8Async(content) {
