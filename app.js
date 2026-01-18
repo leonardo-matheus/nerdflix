@@ -4,16 +4,20 @@
 
 class NerdflixApp {
     constructor() {
-        // M3U8 Playlist URL
+        // Optimized JSON data URL (47MB -> 5MB with gzip = ~3-5s load)
+        this.dataUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/nerdflix-data.json';
+        
+        // Fallback to M3U8 if JSON not available
         this.playlistUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/ListaVip.m3u8';
         
         // Cache settings (IndexedDB - supports large data)
-        this.CACHE_KEY = 'nerdflix_playlist_cache';
+        this.CACHE_KEY = 'nerdflix_playlist_cache_v2';
         this.CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
         
         // Data storage
         this.allItems = [];
         this.categories = {};
+        this.groupNames = []; // Group names array from optimized JSON
         this.currentFilter = 'all';
         this.searchQuery = '';
         this.featuredItem = null;
@@ -189,67 +193,90 @@ class NerdflixApp {
             this.loadStartTime = Date.now();
             
             // Try to load from local cache first (IndexedDB)
-            this.updatePhase('Verificando cache local...');
+            this.updatePhase('Verificando cache...');
             const cached = await this.loadFromCache();
             if (cached) {
-                this.updatePhase('Carregando do cache...');
                 this.updateProgress(100, 100);
                 this.allItems = cached.items;
                 this.categories = cached.categories;
-                this.elements.loadingEta.textContent = '⚡ Cache local utilizado!';
+                this.groupNames = cached.groupNames || [];
+                this.elements.loadingEta.textContent = '⚡ Cache local!';
                 
                 this.renderCategoryDropdown();
                 this.renderContent();
                 this.setFeaturedItem();
                 
-                console.log(`Carregado do cache: ${this.allItems.length} itens`);
+                const elapsed = ((Date.now() - this.loadStartTime) / 1000).toFixed(1);
+                console.log(`Cache: ${this.allItems.length} itens em ${elapsed}s`);
                 return;
             }
             
-            // Load M3U8 with progress
-            this.updatePhase('Baixando lista M3U8...');
+            // Try optimized JSON first (much faster: ~5MB vs 54MB)
+            this.updatePhase('Baixando dados...');
+            let jsonData = await this.fetchWithProgress(this.dataUrl);
+            
+            if (jsonData) {
+                this.updatePhase('Processando...');
+                this.updateProgress(80, 100, 'process');
+                
+                const data = JSON.parse(jsonData);
+                this.groupNames = data.g || [];
+                
+                // Expand items from compact format
+                this.allItems = data.i.map((item, idx) => ({
+                    id: idx,
+                    name: item.n || '',
+                    group: this.groupNames[item.g] || 'Outros',
+                    logo: item.l || '',
+                    url: item.u || '',
+                    type: this.determineTypeFromGroup(this.groupNames[item.g] || '', item.n || '')
+                }));
+                
+                // Build categories
+                this.categories = {};
+                this.allItems.forEach(item => {
+                    const cat = item.group || 'Outros';
+                    if (!this.categories[cat]) this.categories[cat] = [];
+                    this.categories[cat].push(item);
+                });
+                
+                await this.saveToCache();
+                
+                this.renderCategoryDropdown();
+                this.renderContent();
+                this.setFeaturedItem();
+                
+                const elapsed = ((Date.now() - this.loadStartTime) / 1000).toFixed(1);
+                this.elements.loadingEta.textContent = `✅ Carregado em ${elapsed}s`;
+                console.log(`JSON: ${this.allItems.length} itens em ${elapsed}s`);
+                return;
+            }
+            
+            // Fallback to M3U8 (slower)
+            this.updatePhase('Baixando M3U8 (fallback)...');
             let text = await this.fetchWithProgress(this.playlistUrl);
             
-            // Try CORS proxies if direct fetch failed
             if (!text) {
-                const corsProxies = [
-                    'https://api.allorigins.win/raw?url=',
-                    'https://corsproxy.io/?'
-                ];
-                
-                for (const proxy of corsProxies) {
-                    try {
-                        this.updatePhase('Usando proxy alternativo...');
-                        text = await this.fetchWithProgress(proxy + encodeURIComponent(this.playlistUrl));
-                        if (text) break;
-                    } catch (e) {
-                        console.log(`Proxy ${proxy} failed`);
-                    }
-                }
+                // Try CORS proxy
+                const proxy = 'https://api.allorigins.win/raw?url=';
+                this.updatePhase('Usando proxy...');
+                text = await this.fetchWithProgress(proxy + encodeURIComponent(this.playlistUrl));
             }
             
             if (!text) {
-                throw new Error('Não foi possível carregar a playlist');
+                throw new Error('Não foi possível carregar');
             }
             
-            this.updatePhase('Processando conteúdo...');
-            this.updateProgress(0, 100, 'process');
-            
+            this.updatePhase('Processando M3U8...');
             await this.parseM3U8Async(text);
-            
-            // Save to local cache (IndexedDB - async)
-            this.updatePhase('Salvando cache local...');
             await this.saveToCache();
-            
-            this.updatePhase('Renderizando interface...');
-            this.updateProgress(90, 100, 'process');
             
             this.renderCategoryDropdown();
             this.renderContent();
             this.setFeaturedItem();
             
-            this.updateProgress(100, 100, 'process');
-            this.elements.loadingEta.textContent = '✅ Próximo acesso será instantâneo!';
+            const elapsed = ((Date.now() - this.loadStartTime) / 1000).toFixed(1);
+            this.elements.loadingEta.textContent = `✅ Carregado em ${elapsed}s`;
             
         } catch (error) {
             console.error('Erro ao carregar playlist:', error);
@@ -360,12 +387,13 @@ class NerdflixApp {
                     id: 'playlist',
                     items: this.allItems,
                     categories: this.categories,
+                    groupNames: this.groupNames,
                     timestamp: Date.now()
                 };
                 
                 const request = store.put(data);
                 request.onsuccess = () => {
-                    console.log('Cache salvo com sucesso (IndexedDB)');
+                    console.log('Cache salvo (IndexedDB)');
                     resolve(true);
                 };
                 request.onerror = () => {
@@ -376,6 +404,16 @@ class NerdflixApp {
         } catch (e) {
             console.warn('Não foi possível salvar cache:', e.message);
         }
+    }
+    
+    determineTypeFromGroup(group, name) {
+        const g = (group || '').toLowerCase();
+        const n = (name || '').toLowerCase();
+        
+        if (/filme|movie|cinema|lançamento|dublado|legendado/i.test(g + n)) return 'movies';
+        if (/série|series|temporada|episódio|episode|season/i.test(g + n)) return 'series';
+        if (/tv|canal|channel|ao vivo|live|24h|hd|fhd/i.test(g + n)) return 'channels';
+        return 'other';
     }
     
     async clearCache() {
