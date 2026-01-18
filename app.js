@@ -460,13 +460,7 @@ class NerdflixApp {
         
         console.log(`Carregados ${this.allItems.length} itens em ${Object.keys(this.categories).length} categorias`);
     }
-            
-        } catch (error) {
-            console.error('Erro ao carregar playlist:', error);
-            this.elements.loadingText.textContent = 'Erro ao carregar: ' + error.message;
-        }
-    }
-    
+
     parseM3U8(content) {
         const lines = content.split('\n');
         let currentItem = null;
