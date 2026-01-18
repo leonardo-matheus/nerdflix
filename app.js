@@ -428,12 +428,13 @@ class NerdflixApp {
     renderCard(item) {
         const hasLogo = item.logo && item.logo.trim() !== '';
         const icon = this.getItemIcon(item);
+        const logoUrl = this.forceHttps(item.logo);
         
         return `
             <div class="content-card" data-id="${item.id}">
                 <div class="card-image">
                     ${hasLogo 
-                        ? `<img src="${this.escapeHtml(item.logo)}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-placeholder\\'><i class=\\'${icon}\\'></i><span>${this.escapeHtml(item.name)}</span></div>'">`
+                        ? `<img src="${this.escapeHtml(logoUrl)}" alt="${this.escapeHtml(item.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-placeholder\\'><i class=\\'${icon}\\'></i><span>${this.escapeHtml(item.name)}</span></div>'">`
                         : `<div class="card-placeholder">
                             <i class="${icon}"></i>
                             <span>${this.escapeHtml(item.name)}</span>
@@ -510,7 +511,7 @@ class NerdflixApp {
         if (itemsWithLogo.length > 0) {
             this.featuredItem = itemsWithLogo[Math.floor(Math.random() * itemsWithLogo.length)];
             
-            this.elements.featuredBanner.style.backgroundImage = `url(${this.featuredItem.logo})`;
+            this.elements.featuredBanner.style.backgroundImage = `url(${this.forceHttps(this.featuredItem.logo)})`;
             this.elements.featuredTitle.textContent = this.featuredItem.name;
             this.elements.featuredDescription.textContent = `Categoria: ${this.featuredItem.group || 'Geral'}`;
         } else if (this.allItems.length > 0) {
@@ -609,7 +610,7 @@ class NerdflixApp {
         `;
         
         if (item.logo) {
-            this.elements.detailsBanner.style.backgroundImage = `url(${item.logo})`;
+            this.elements.detailsBanner.style.backgroundImage = `url(${this.forceHttps(item.logo)})`;
         } else {
             this.elements.detailsBanner.style.backgroundImage = 'none';
             this.elements.detailsBanner.style.backgroundColor = '#333';
@@ -667,6 +668,12 @@ class NerdflixApp {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // Force HTTPS on image URLs to avoid mixed content warnings
+    forceHttps(url) {
+        if (!url) return '';
+        return url.replace(/^http:\/\//i, 'https://');
     }
     
     hideLoading() {
