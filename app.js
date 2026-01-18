@@ -968,13 +968,28 @@ class NerdflixApp {
         this.elements.playerCategory.textContent = `Categoria: ${item.group || 'Geral'}`;
         
         const video = this.elements.videoPlayer;
-        const url = item.url;
+        let url = item.url;
         
         // Destroy previous HLS instance
         if (this.hls) {
             this.hls.destroy();
             this.hls = null;
         }
+        
+        // Show error message function
+        const showError = (message) => {
+            this.elements.playerCategory.innerHTML = `
+                <span style="color: #e50914;">⚠️ ${message}</span>
+                <br><small style="color: #aaa;">Este link pode estar offline ou indisponível</small>
+            `;
+        };
+        
+        // Handle video errors for direct playback
+        const handleVideoError = () => {
+            showError('Não foi possível reproduzir este conteúdo');
+        };
+        
+        video.onerror = handleVideoError;
         
         // Check if HLS is needed
         if (url.includes('.m3u8')) {
@@ -989,19 +1004,33 @@ class NerdflixApp {
                 this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     video.play().catch(e => console.log('Autoplay prevented:', e));
                 });
+                
+                let errorCount = 0;
                 this.hls.on(Hls.Events.ERROR, (event, data) => {
                     console.error('HLS Error:', data);
                     if (data.fatal) {
+                        errorCount++;
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.log('Network error, trying to recover...');
-                                this.hls.startLoad();
+                                if (errorCount < 3) {
+                                    console.log('Network error, trying to recover...');
+                                    this.hls.startLoad();
+                                } else {
+                                    showError('Erro de conexão - servidor indisponível');
+                                    this.hls.destroy();
+                                }
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.log('Media error, trying to recover...');
-                                this.hls.recoverMediaError();
+                                if (errorCount < 3) {
+                                    console.log('Media error, trying to recover...');
+                                    this.hls.recoverMediaError();
+                                } else {
+                                    showError('Erro no formato de mídia');
+                                    this.hls.destroy();
+                                }
                                 break;
                             default:
+                                showError('Não foi possível carregar este conteúdo');
                                 this.hls.destroy();
                                 break;
                         }
@@ -1015,9 +1044,12 @@ class NerdflixApp {
                 });
             }
         } else {
-            // Direct video URL
+            // Direct video URL (MP4, etc.)
             video.src = url;
-            video.play().catch(e => console.log('Autoplay prevented:', e));
+            video.play().catch(e => {
+                console.log('Autoplay prevented:', e);
+                // User needs to click play manually - this is fine
+            });
         }
     }
     
