@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NERDFLIX</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">NERDFLIX</h1>
+            <nav class="nav-menu">
+                <a href="#" class="nav-link active" data-filter="all">Início</a>
+                <a href="#" class="nav-link" data-filter="channels">Canais</a>
+                <a href="#" class="nav-link" data-filter="movies">Filmes</a>
+                <a href="#" class="nav-link" data-filter="series">Séries</a>
+            </nav>
+        </div>
+        <div class="header-right">
+            <div class="search-container">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" id="searchInput" placeholder="Buscar títulos...">
+            </div>
+            <div class="category-dropdown">
+                <button class="dropdown-btn">
+                    <i class="fas fa-folder"></i> Categorias
+                </button>
+                <div class="dropdown-content" id="categoryDropdown"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loader">
+            <h2 class="logo">NERDFLIX</h2>
+            <div class="loading-bar">
+                <div class="loading-progress"></div>
+            </div>
+            <p id="loadingText">Carregando lista...</p>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+        <!-- Featured Banner -->
+        <section class="featured-banner" id="featuredBanner">
+            <div class="featured-overlay"></div>
+            <div class="featured-info">
+                <h2 class="featured-title" id="featuredTitle">Bem-vindo ao NERDFLIX</h2>
+                <p class="featured-description" id="featuredDescription">Sua plataforma de streaming personalizada</p>
+                <div class="featured-buttons">
+                    <button class="btn-play" id="featuredPlayBtn">
+                        <i class="fas fa-play"></i> Assistir
+                    </button>
+                    <button class="btn-info" id="featuredInfoBtn">
+                        <i class="fas fa-info-circle"></i> Mais Informações
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Content Rows -->
+        <div class="content-container" id="contentContainer">
+            <!-- Categories will be dynamically inserted here -->
+        </div>
+    </main>
+
+    <!-- Video Player Modal -->
+    <div class="player-modal" id="playerModal">
+        <div class="player-container">
+            <button class="close-player" id="closePlayer">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="player-header">
+                <h3 id="playerTitle">Reproduzindo...</h3>
+            </div>
+            <div class="video-wrapper">
+                <video id="videoPlayer" controls autoplay></video>
+            </div>
+            <div class="player-controls-info">
+                <span id="playerCategory"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Details Modal -->
+    <div class="details-modal" id="detailsModal">
+        <div class="details-container">
+            <button class="close-details" id="closeDetails">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="details-banner" id="detailsBanner">
+                <div class="details-overlay"></div>
+            </div>
+            <div class="details-content">
+                <h2 id="detailsTitle"></h2>
+                <p class="details-category" id="detailsCategory"></p>
+                <p class="details-description" id="detailsDescription"></p>
+                <button class="btn-play-details" id="detailsPlayBtn">
+                    <i class="fas fa-play"></i> Assistir Agora
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="app.js"></script>
+</body>
+</html>
