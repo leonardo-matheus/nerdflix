@@ -418,6 +418,47 @@ body {
     font-size: 0.85rem;
 }
 
+.show-more-btn {
+    background: none;
+    border: none;
+    color: var(--primary-red);
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 5px 10px;
+    margin-left: 15px;
+    transition: all 0.3s ease;
+}
+
+.show-more-btn:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+
+.load-more-section {
+    display: flex;
+    justify-content: center;
+    padding: 40px 0;
+}
+
+.load-more-btn {
+    background: var(--card-bg);
+    border: 1px solid var(--text-muted);
+    color: var(--text-primary);
+    font-size: 1rem;
+    padding: 15px 40px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+}
+
+.load-more-btn:hover {
+    background: var(--primary-red);
+    border-color: var(--primary-red);
+}
+
 .row-slider {
     display: flex;
     gap: 10px;

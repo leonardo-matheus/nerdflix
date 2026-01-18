@@ -216,39 +216,79 @@ class NerdflixApp {
             let jsonData = await this.fetchWithProgress(this.dataUrl);
             
             if (jsonData) {
-                this.updatePhase('Processando...');
-                this.updateProgress(80, 100, 'process');
+                console.log('JSON recebido, parseando...');
+                this.updatePhase('Parseando JSON...');
+                this.updateProgress(70, 100, 'process');
                 
+                // Parse JSON in a non-blocking way
+                await new Promise(r => setTimeout(r, 0));
                 const data = JSON.parse(jsonData);
+                jsonData = null; // Free memory
+                
+                console.log(`Dados: ${data.i.length} itens, ${data.g.length} grupos`);
                 this.groupNames = data.g || [];
                 
-                // Expand items from compact format
-                this.allItems = data.i.map((item, idx) => ({
-                    id: idx,
-                    name: item.n || '',
-                    group: this.groupNames[item.g] || 'Outros',
-                    logo: item.l || '',
-                    url: item.u || '',
-                    type: this.determineTypeFromGroup(this.groupNames[item.g] || '', item.n || '')
-                }));
+                // Process items in chunks to avoid freezing
+                this.updatePhase('Processando itens...');
+                this.updateProgress(75, 100, 'process');
+                await new Promise(r => setTimeout(r, 0));
                 
-                // Build categories
+                const items = data.i;
+                const total = items.length;
+                this.allItems = new Array(total);
                 this.categories = {};
-                this.allItems.forEach(item => {
-                    const cat = item.group || 'Outros';
-                    if (!this.categories[cat]) this.categories[cat] = [];
-                    this.categories[cat].push(item);
-                });
                 
+                const CHUNK_SIZE = 20000;
+                for (let start = 0; start < total; start += CHUNK_SIZE) {
+                    const end = Math.min(start + CHUNK_SIZE, total);
+                    
+                    for (let idx = start; idx < end; idx++) {
+                        const item = items[idx];
+                        const groupName = this.groupNames[item.g] || 'Outros';
+                        
+                        const expanded = {
+                            id: idx,
+                            name: item.n || '',
+                            group: groupName,
+                            logo: item.l || '',
+                            url: item.u || '',
+                            type: this.determineTypeFromGroup(groupName, item.n || '')
+                        };
+                        
+                        this.allItems[idx] = expanded;
+                        
+                        // Build categories inline
+                        if (!this.categories[groupName]) {
+                            this.categories[groupName] = [];
+                        }
+                        this.categories[groupName].push(expanded);
+                    }
+                    
+                    // Update progress and yield to UI
+                    const progress = 75 + Math.round((end / total) * 15);
+                    this.updateProgress(progress, 100, 'process');
+                    this.updatePhase(`Processando... ${end.toLocaleString()}/${total.toLocaleString()}`);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+                
+                console.log(`Processados: ${this.allItems.length} itens`);
+                
+                this.updatePhase('Salvando cache...');
+                this.updateProgress(92, 100, 'process');
                 await this.saveToCache();
+                
+                this.updatePhase('Renderizando...');
+                this.updateProgress(95, 100, 'process');
+                await new Promise(r => setTimeout(r, 0));
                 
                 this.renderCategoryDropdown();
                 this.renderContent();
                 this.setFeaturedItem();
                 
+                this.updateProgress(100, 100, 'process');
                 const elapsed = ((Date.now() - this.loadStartTime) / 1000).toFixed(1);
-                this.elements.loadingEta.textContent = `✅ Carregado em ${elapsed}s`;
-                console.log(`JSON: ${this.allItems.length} itens em ${elapsed}s`);
+                this.elements.loadingEta.textContent = `✅ ${elapsed}s`;
+                console.log(`Concluído: ${this.allItems.length} itens em ${elapsed}s`);
                 return;
             }
             
@@ -661,6 +701,9 @@ class NerdflixApp {
     }
     
     renderContent() {
+        const MAX_ITEMS_PER_CATEGORY = 30; // Limit for performance
+        const MAX_CATEGORIES_INITIAL = 20; // Show 20 categories initially
+        
         let itemsToShow = this.getFilteredItems();
         
         // Group by category
@@ -673,8 +716,8 @@ class NerdflixApp {
             grouped[category].push(item);
         });
         
-        // Sort categories
-        const sortedCategories = Object.keys(grouped).sort();
+        // Sort categories by item count (most items first)
+        const sortedCategories = Object.keys(grouped).sort((a, b) => grouped[b].length - grouped[a].length);
         
         if (sortedCategories.length === 0) {
             this.elements.contentContainer.innerHTML = `
@@ -687,11 +730,18 @@ class NerdflixApp {
             return;
         }
         
+        // Calculate visible items count
+        const visibleCategories = sortedCategories.slice(0, MAX_CATEGORIES_INITIAL);
+        let totalVisible = 0;
+        visibleCategories.forEach(cat => {
+            totalVisible += Math.min(grouped[cat].length, MAX_ITEMS_PER_CATEGORY);
+        });
+        
         // Stats bar
         let html = `
             <div class="stats-bar">
                 <div class="stat-item">
-                    <div class="stat-number">${this.allItems.length}</div>
+                    <div class="stat-number">${this.allItems.length.toLocaleString()}</div>
                     <div class="stat-label">Total de Itens</div>
                 </div>
                 <div class="stat-item">
@@ -699,15 +749,17 @@ class NerdflixApp {
                     <div class="stat-label">Categorias</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-number">${itemsToShow.length}</div>
-                    <div class="stat-label">Exibindo</div>
+                    <div class="stat-number">${itemsToShow.length.toLocaleString()}</div>
+                    <div class="stat-label">Filtrados</div>
                 </div>
             </div>
         `;
         
-        // Render each category row
-        sortedCategories.forEach(category => {
-            const items = grouped[category];
+        // Render limited categories
+        visibleCategories.forEach(category => {
+            const allCategoryItems = grouped[category];
+            const items = allCategoryItems.slice(0, MAX_ITEMS_PER_CATEGORY);
+            const hasMore = allCategoryItems.length > MAX_ITEMS_PER_CATEGORY;
             const icon = this.getCategoryIcon(category);
             
             html += `
@@ -717,7 +769,85 @@ class NerdflixApp {
                             <i class="${icon}"></i>
                             ${this.escapeHtml(category)}
                         </h3>
-                        <span class="row-count">${items.length} itens</span>
+                        <span class="row-count">${allCategoryItems.length.toLocaleString()} itens</span>
+                        ${hasMore ? `<button class="show-more-btn" data-category="${this.escapeHtml(category)}">Ver todos →</button>` : ''}
+                    </div>
+                    <div class="row-slider">
+                        ${items.map(item => this.renderCard(item)).join('')}
+                    </div>
+                </div>
+            `;
+        });
+        
+        // Show more categories button
+        if (sortedCategories.length > MAX_CATEGORIES_INITIAL) {
+            html += `
+                <div class="load-more-section">
+                    <button id="loadMoreCategories" class="load-more-btn">
+                        <i class="fas fa-plus"></i>
+                        Mostrar mais ${sortedCategories.length - MAX_CATEGORIES_INITIAL} categorias
+                    </button>
+                </div>
+            `;
+        }
+        
+        this.elements.contentContainer.innerHTML = html;
+        
+        // Bind events
+        this.bindCardEvents();
+        this.bindShowMoreEvents(grouped, sortedCategories);
+    }
+    
+    bindShowMoreEvents(grouped, sortedCategories) {
+        // "Ver todos" buttons for each category
+        document.querySelectorAll('.show-more-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const category = btn.dataset.category;
+                this.currentFilter = 'category:' + category;
+                this.renderContent();
+            });
+        });
+        
+        // Load more categories button
+        const loadMoreBtn = document.getElementById('loadMoreCategories');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', () => {
+                this.renderAllCategories(grouped, sortedCategories);
+            });
+        }
+    }
+    
+    renderAllCategories(grouped, sortedCategories) {
+        const MAX_ITEMS_PER_CATEGORY = 30;
+        
+        let html = `
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-number">${this.allItems.length.toLocaleString()}</div>
+                    <div class="stat-label">Total de Itens</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${sortedCategories.length}</div>
+                    <div class="stat-label">Categorias</div>
+                </div>
+            </div>
+        `;
+        
+        sortedCategories.forEach(category => {
+            const allCategoryItems = grouped[category];
+            const items = allCategoryItems.slice(0, MAX_ITEMS_PER_CATEGORY);
+            const hasMore = allCategoryItems.length > MAX_ITEMS_PER_CATEGORY;
+            const icon = this.getCategoryIcon(category);
+            
+            html += `
+                <div class="content-row" data-category="${this.escapeHtml(category)}">
+                    <div class="row-header">
+                        <h3 class="row-title">
+                            <i class="${icon}"></i>
+                            ${this.escapeHtml(category)}
+                        </h3>
+                        <span class="row-count">${allCategoryItems.length.toLocaleString()} itens</span>
+                        ${hasMore ? `<button class="show-more-btn" data-category="${this.escapeHtml(category)}">Ver todos →</button>` : ''}
                     </div>
                     <div class="row-slider">
                         ${items.map(item => this.renderCard(item)).join('')}
@@ -727,9 +857,8 @@ class NerdflixApp {
         });
         
         this.elements.contentContainer.innerHTML = html;
-        
-        // Bind card events
         this.bindCardEvents();
+        this.bindShowMoreEvents(grouped, sortedCategories);
     }
     
     renderCard(item) {
