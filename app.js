@@ -7,6 +7,13 @@ class NerdflixApp {
         // M3U8 Playlist URL
         this.playlistUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/ListaVip.m3u8';
         
+        // Pre-processed JSON cache URL (optional - for faster loading)
+        this.cacheJsonUrl = 'https://pub-f8e264b0f9ce4788ba346df77c54fef5.r2.dev/2024/nerdflix-cache.json';
+        
+        // Cache settings
+        this.CACHE_KEY = 'nerdflix_playlist_cache';
+        this.CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+        
         // Data storage
         this.allItems = [];
         this.categories = {};
@@ -17,10 +24,18 @@ class NerdflixApp {
         // HLS Player instance
         this.hls = null;
         
+        // Loading stats
+        this.loadStartTime = null;
+        
         // DOM Elements
         this.elements = {
             loadingScreen: document.getElementById('loadingScreen'),
             loadingText: document.getElementById('loadingText'),
+            loadingPercentage: document.getElementById('loadingPercentage'),
+            loadingProgress: document.getElementById('loadingProgress'),
+            loadingSize: document.getElementById('loadingSize'),
+            loadingTotal: document.getElementById('loadingTotal'),
+            loadingEta: document.getElementById('loadingEta'),
             mainContent: document.getElementById('mainContent'),
             contentContainer: document.getElementById('contentContainer'),
             categoryDropdown: document.getElementById('categoryDropdown'),
@@ -52,6 +67,44 @@ class NerdflixApp {
         this.bindEvents();
         await this.loadPlaylist();
         this.hideLoading();
+    }
+    
+    // ========================================
+    // Loading Progress
+    // ========================================
+    
+    updateProgress(loaded, total, phase = 'download') {
+        const percentage = total > 0 ? Math.round((loaded / total) * 100) : 0;
+        
+        this.elements.loadingPercentage.textContent = `${percentage}%`;
+        this.elements.loadingProgress.style.width = `${percentage}%`;
+        this.elements.loadingProgress.classList.remove('animated');
+        
+        if (phase === 'download') {
+            const loadedMB = (loaded / (1024 * 1024)).toFixed(1);
+            const totalMB = (total / (1024 * 1024)).toFixed(1);
+            this.elements.loadingSize.textContent = `${loadedMB} MB`;
+            this.elements.loadingTotal.textContent = `${totalMB} MB`;
+            
+            // Calculate ETA
+            if (this.loadStartTime && loaded > 0) {
+                const elapsed = (Date.now() - this.loadStartTime) / 1000;
+                const speed = loaded / elapsed;
+                const remaining = (total - loaded) / speed;
+                
+                if (remaining > 0 && remaining < 3600) {
+                    const mins = Math.floor(remaining / 60);
+                    const secs = Math.round(remaining % 60);
+                    this.elements.loadingEta.textContent = mins > 0 
+                        ? `Tempo estimado: ${mins}m ${secs}s`
+                        : `Tempo estimado: ${secs}s`;
+                }
+            }
+        }
+    }
+    
+    updatePhase(text) {
+        this.elements.loadingText.textContent = text;
     }
     
     // ========================================
@@ -136,36 +189,63 @@ class NerdflixApp {
     
     async loadPlaylist() {
         try {
-            this.elements.loadingText.textContent = 'Baixando lista...';
+            this.loadStartTime = Date.now();
             
-            let text = null;
-            
-            // Try direct fetch first
-            try {
-                const response = await fetch(this.playlistUrl);
-                if (response.ok) {
-                    text = await response.text();
-                }
-            } catch (e) {
-                console.log('Direct fetch failed, trying CORS proxy...');
+            // Try to load from local cache first
+            const cached = this.loadFromCache();
+            if (cached) {
+                this.updatePhase('Carregando do cache...');
+                this.updateProgress(100, 100);
+                this.allItems = cached.items;
+                this.categories = cached.categories;
+                this.elements.loadingEta.textContent = 'Cache local utilizado!';
+                
+                this.renderCategoryDropdown();
+                this.renderContent();
+                this.setFeaturedItem();
+                
+                console.log(`Carregado do cache: ${this.allItems.length} itens`);
+                return;
             }
             
-            // If direct fetch failed, try CORS proxies
+            // Try to load pre-processed JSON first (faster)
+            try {
+                this.updatePhase('Buscando cache do servidor...');
+                const jsonData = await this.fetchWithProgress(this.cacheJsonUrl);
+                if (jsonData) {
+                    const parsed = JSON.parse(jsonData);
+                    this.allItems = parsed.items;
+                    this.categories = parsed.categories;
+                    
+                    this.saveToCache();
+                    this.updatePhase('Renderizando...');
+                    this.renderCategoryDropdown();
+                    this.renderContent();
+                    this.setFeaturedItem();
+                    
+                    console.log(`Carregado do JSON: ${this.allItems.length} itens`);
+                    return;
+                }
+            } catch (e) {
+                console.log('JSON cache not available, loading M3U8...');
+            }
+            
+            // Load M3U8 with progress
+            this.updatePhase('Baixando lista M3U8...');
+            let text = await this.fetchWithProgress(this.playlistUrl);
+            
+            // Try CORS proxies if direct fetch failed
             if (!text) {
                 const corsProxies = [
                     'https://api.allorigins.win/raw?url=',
-                    'https://corsproxy.io/?',
-                    'https://cors-anywhere.herokuapp.com/'
+                    'https://corsproxy.io/?'
                 ];
                 
                 for (const proxy of corsProxies) {
                     try {
-                        this.elements.loadingText.textContent = 'Tentando proxy alternativo...';
-                        const response = await fetch(proxy + encodeURIComponent(this.playlistUrl));
-                        if (response.ok) {
-                            text = await response.text();
-                            break;
-                        }
+                        this.updatePhase('Usando proxy alternativo...');
+                        text = await this.fetchWithProgress(proxy + encodeURIComponent(this.playlistUrl));
+                        if (text) break;
                     } catch (e) {
                         console.log(`Proxy ${proxy} failed`);
                     }
@@ -176,15 +256,178 @@ class NerdflixApp {
                 throw new Error('Não foi possível carregar a playlist');
             }
             
-            this.elements.loadingText.textContent = 'Processando conteúdo...';
+            this.updatePhase('Processando conteúdo...');
+            this.updateProgress(0, 100, 'process');
             
-            this.parseM3U8(text);
+            await this.parseM3U8Async(text);
             
-            this.elements.loadingText.textContent = 'Renderizando interface...';
+            // Save to local cache
+            this.saveToCache();
+            
+            this.updatePhase('Renderizando interface...');
+            this.updateProgress(90, 100, 'process');
             
             this.renderCategoryDropdown();
             this.renderContent();
             this.setFeaturedItem();
+            
+            this.updateProgress(100, 100, 'process');
+            
+        } catch (error) {
+            console.error('Erro ao carregar playlist:', error);
+            this.updatePhase('Erro: ' + error.message);
+            this.elements.loadingEta.textContent = 'Tente recarregar a página';
+        }
+    }
+    
+    async fetchWithProgress(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) return null;
+            
+            const contentLength = response.headers.get('content-length');
+            const total = contentLength ? parseInt(contentLength, 10) : 0;
+            
+            if (!response.body || !total) {
+                // Fallback for browsers without streaming support
+                this.elements.loadingProgress.classList.add('animated');
+                return await response.text();
+            }
+            
+            const reader = response.body.getReader();
+            const chunks = [];
+            let loaded = 0;
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                chunks.push(value);
+                loaded += value.length;
+                this.updateProgress(loaded, total, 'download');
+            }
+            
+            const allChunks = new Uint8Array(loaded);
+            let position = 0;
+            for (const chunk of chunks) {
+                allChunks.set(chunk, position);
+                position += chunk.length;
+            }
+            
+            return new TextDecoder().decode(allChunks);
+        } catch (e) {
+            console.error('Fetch error:', e);
+            return null;
+        }
+    }
+    
+    // Cache management
+    loadFromCache() {
+        try {
+            const cached = localStorage.getItem(this.CACHE_KEY);
+            if (!cached) return null;
+            
+            const data = JSON.parse(cached);
+            if (Date.now() - data.timestamp > this.CACHE_EXPIRY) {
+                localStorage.removeItem(this.CACHE_KEY);
+                return null;
+            }
+            
+            return data;
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    saveToCache() {
+        try {
+            const data = {
+                items: this.allItems,
+                categories: this.categories,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(this.CACHE_KEY, JSON.stringify(data));
+            console.log('Cache salvo com sucesso');
+        } catch (e) {
+            console.warn('Não foi possível salvar cache:', e.message);
+        }
+    }
+    
+    clearCache() {
+        localStorage.removeItem(this.CACHE_KEY);
+        console.log('Cache limpo');
+    }
+    
+    async parseM3U8Async(content) {
+        const lines = content.split('\n');
+        const totalLines = lines.length;
+        let currentItem = null;
+        let processedLines = 0;
+        const batchSize = 5000;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            if (line.startsWith('#EXTINF:')) {
+                currentItem = this.parseExtInf(line);
+            } else if (line && !line.startsWith('#') && currentItem) {
+                currentItem.url = line;
+                currentItem.id = this.allItems.length;
+                currentItem.type = this.determineType(currentItem);
+                
+                this.allItems.push(currentItem);
+                
+                const category = currentItem.group || 'Outros';
+                if (!this.categories[category]) {
+                    this.categories[category] = [];
+                }
+                this.categories[category].push(currentItem);
+                
+                currentItem = null;
+            }
+            
+            processedLines++;
+            
+            // Update progress and yield to UI every batch
+            if (processedLines % batchSize === 0) {
+                const progress = Math.round((processedLines / totalLines) * 80);
+                this.updateProgress(progress, 100, 'process');
+                this.updatePhase(`Processando... ${this.allItems.length.toLocaleString()} itens`);
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+        
+        console.log(`Carregados ${this.allItems.length} itens em ${Object.keys(this.categories).length} categorias`);
+    }
+
+    parseM3U8(content) {
+        const lines = content.split('\n');
+        let currentItem = null;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            if (line.startsWith('#EXTINF:')) {
+                currentItem = this.parseExtInf(line);
+            } else if (line && !line.startsWith('#') && currentItem) {
+                currentItem.url = line;
+                currentItem.id = this.allItems.length;
+                currentItem.type = this.determineType(currentItem);
+                
+                this.allItems.push(currentItem);
+                
+                const category = currentItem.group || 'Outros';
+                if (!this.categories[category]) {
+                    this.categories[category] = [];
+                }
+                this.categories[category].push(currentItem);
+                
+                currentItem = null;
+            }
+        }
+        
+        console.log(`Carregados ${this.allItems.length} itens em ${Object.keys(this.categories).length} categorias`);
+    }
             
         } catch (error) {
             console.error('Erro ao carregar playlist:', error);

@@ -38,10 +38,17 @@
     <div class="loading-screen" id="loadingScreen">
         <div class="loader">
             <h2 class="logo">NERDFLIX</h2>
-            <div class="loading-bar">
-                <div class="loading-progress"></div>
+            <div class="loading-stats">
+                <div class="loading-percentage" id="loadingPercentage">0%</div>
+                <div class="loading-details">
+                    <span id="loadingSize">0 MB</span> / <span id="loadingTotal">? MB</span>
+                </div>
             </div>
-            <p id="loadingText">Carregando lista...</p>
+            <div class="loading-bar">
+                <div class="loading-progress" id="loadingProgress"></div>
+            </div>
+            <p id="loadingText">Iniciando...</p>
+            <p class="loading-eta" id="loadingEta"></p>
         </div>
     </div>
 
